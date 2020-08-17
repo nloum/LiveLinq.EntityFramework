@@ -22,6 +22,12 @@ namespace LiveLinq.EntityFramework
         }
 
         public IComposableDictionary<TId, TDbDto> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
+            Func<TDbDto, TId> id, Func<DbSet<TDbDto>, TId, TDbDto> find) where TDbDto : class
+        {
+            return new AnonymousEntityFrameCoreDictionary<TId, TDbDto, TDbContext>(dbSet, _create, id, find);
+        }
+        
+        public IComposableDictionary<TId, TDbDto> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
             Func<TDbDto, TId> id) where TDbDto : class
         {
             return new AnonymousEntityFrameCoreDictionary<TId, TDbDto, TDbContext>(dbSet, _create, id);

@@ -20,6 +20,7 @@ namespace LiveLinq.EntityFramework
         protected abstract DbSet<TDbDto> GetDbSet(TDbContext context);
         protected abstract TDbContext CreateDbContext();
         protected abstract TId GetId(TDbDto dbDto);
+        protected abstract TDbDto Find(DbSet<TDbDto> dbSet, TId id);
         protected abstract void Migrate(DatabaseFacade database);
 
         protected EntityFrameworkCoreDictionaryBase(bool migrate)
@@ -53,7 +54,7 @@ namespace LiveLinq.EntityFramework
         {
             using (var context = PrivateCreateDbContext())
             {
-                value = GetDbSet(context).Find(key);
+                value = Find(GetDbSet(context), key);
                 if (value != null)
                 {
                     context.Entry(value).State = EntityState.Detached;
@@ -100,7 +101,7 @@ namespace LiveLinq.EntityFramework
                         {
                             if (mutation.Type == DictionaryMutationType.Add)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     context.Entry(preExistingValue).State = EntityState.Detached;
@@ -113,7 +114,7 @@ namespace LiveLinq.EntityFramework
                             }
                             else if (mutation.Type == DictionaryMutationType.TryAdd)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     context.Entry(preExistingValue).State = EntityState.Detached;
@@ -128,7 +129,7 @@ namespace LiveLinq.EntityFramework
                             }
                             else if (mutation.Type == DictionaryMutationType.Update)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     var oldPreExistingValue = _mapper.Map<TDbDto, TDbDto>(preExistingValue);
@@ -145,7 +146,7 @@ namespace LiveLinq.EntityFramework
                             }
                             else if (mutation.Type == DictionaryMutationType.TryUpdate)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     var oldPreExistingValue = _mapper.Map<TDbDto, TDbDto>(preExistingValue);
@@ -161,7 +162,7 @@ namespace LiveLinq.EntityFramework
                             }
                             else if (mutation.Type == DictionaryMutationType.Remove)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     context.Entry(preExistingValue).State = EntityState.Detached;
@@ -175,7 +176,7 @@ namespace LiveLinq.EntityFramework
                             }
                             else if (mutation.Type == DictionaryMutationType.TryRemove)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     context.Entry(preExistingValue).State = EntityState.Detached;
@@ -189,7 +190,7 @@ namespace LiveLinq.EntityFramework
                             }
                             else if (mutation.Type == DictionaryMutationType.AddOrUpdate)
                             {
-                                var preExistingValue = GetDbSet(context).Find(mutation.Key);
+                                var preExistingValue = Find(GetDbSet(context), mutation.Key);
                                 if (preExistingValue != null)
                                 {
                                     var oldPreExistingValue = _mapper.Map<TDbDto, TDbDto>(preExistingValue);
