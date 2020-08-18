@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LiveLinq.EntityFramework.Tests.Migrations
 {
     [DbContext(typeof(TaskDbContext))]
-    [Migration("20200818141049_InitialCreate")]
+    [Migration("20200818144104_InitialCreate")]
     partial class InitialCreate
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -38,7 +38,7 @@ namespace LiveLinq.EntityFramework.Tests.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid>("AssignedToId")
+                    b.Property<Guid?>("AssignedToId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
@@ -55,9 +55,7 @@ namespace LiveLinq.EntityFramework.Tests.Migrations
                 {
                     b.HasOne("LiveLinq.EntityFramework.Tests.PersonDto", "AssignedTo")
                         .WithMany("AssignedTasks")
-                        .HasForeignKey("AssignedToId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("AssignedToId");
                 });
 #pragma warning restore 612, 618
         }

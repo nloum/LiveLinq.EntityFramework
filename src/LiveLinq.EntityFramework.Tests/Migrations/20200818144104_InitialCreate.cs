@@ -25,7 +25,7 @@ namespace LiveLinq.EntityFramework.Tests.Migrations
                 {
                     Id = table.Column<Guid>(nullable: false),
                     Description = table.Column<string>(nullable: true),
-                    AssignedToId = table.Column<Guid>(nullable: false)
+                    AssignedToId = table.Column<Guid>(nullable: true)
                 },
                 constraints: table =>
                 {
@@ -35,7 +35,7 @@ namespace LiveLinq.EntityFramework.Tests.Migrations
                         column: x => x.AssignedToId,
                         principalTable: "People",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
