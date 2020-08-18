@@ -80,6 +80,7 @@ namespace LiveLinq.EntityFramework
                 }
             }
         }
+        
         public override IEqualityComparer<TId> Comparer { get; } = EqualityComparer<TId>.Default;
 
         public override IEnumerable<TId> Keys => this.Select(kvp => kvp.Key);
