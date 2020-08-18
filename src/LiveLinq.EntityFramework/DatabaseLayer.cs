@@ -25,7 +25,10 @@ namespace LiveLinq.EntityFramework
         private List<Func<IEnumerable<Action<TDbContext>>>> _getMutationses = new List<Func<IEnumerable<Action<TDbContext>>>>();
         private IComposableDictionary<Type, object> _composableDictionaries = new ComposableDictionary<Type, object>();
         private bool _hasMigratedYet = false;
-        
+        private readonly List<Action<IMapperConfigurationExpression>> _mapperConfigs = new List<Action<IMapperConfigurationExpression>>();
+        private IMapper _mapper;
+        private readonly List<Action> _clearCaches = new List<Action>();
+
         public DatabaseLayer(Func<TDbContext> create, Action<TDbContext> migrate = null)
         {
             if (migrate == null)
@@ -98,27 +101,88 @@ namespace LiveLinq.EntityFramework
             }
         }
 
-        public IComposableDictionary<TId, TDbDto> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
-            Func<TDbDto, TId> id, Func<DbSet<TDbDto>, TId, TDbDto> find) where TDbDto : class
+        private IMapper GetMapper()
         {
+            if (_mapper == null)
+            {
+                var mapperConfig = new MapperConfiguration(cfg =>
+                {
+                    foreach (var mapperConfigAction in _mapperConfigs)
+                    {
+                        mapperConfigAction(cfg);
+                    }
+                });
+
+                _mapper = mapperConfig.CreateMapper();
+            }
+
+            return _mapper;
+        }
+
+        public IComposableDictionary<TId, TAggregateRoot> WithAggregateRoot<TId, TAggregateRoot, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
+            Func<TDbDto, TId> dbDtoId, Func<TAggregateRoot, TId> aggregateRootId, Func<DbSet<TDbDto>, TId, TDbDto> find = null) where TAggregateRoot : class where TDbDto : class, new()
+        {
+            if (find == null)
+            {
+                find = (theDbSet, theId) => theDbSet.Find(theId);
+            }
+
             _lock.EnterWriteLock();
             try
             {
-                var result = new AnonymousEntityFrameworkCoreDictionary<TId, TDbDto, TDbContext>(dbSet, _create, id, find)
-                    .WithMinimalCaching();
-            
-                var mapperConfig = new MapperConfiguration(cfg =>
+                var dtoCache = new ComposableDictionary<TId, TDbDto>();
+                var aggregateRootCache = new ComposableDictionary<TId, TAggregateRoot>();
+                
+                _clearCaches.Add(() =>
+                {
+                    dtoCache.Clear();
+                    aggregateRootCache.Clear();
+                });
+
+                _mapperConfigs.Add(cfg =>
                 {
                     cfg.CreateMap<TDbDto, TDbDto>()
                         .PreserveReferences();
+                    cfg.CreateMap<TAggregateRoot, TDbDto>()
+                        .ConstructUsing((aggregateRoot, resolutionContext) =>
+                        {
+                            var id = aggregateRootId(aggregateRoot);
+                            if (dtoCache.TryGetValue(id, out var preExistingValue))
+                            {
+                                return preExistingValue;
+                            }
+
+                            var dbDto = new TDbDto();
+                            dtoCache[id] = dbDto;
+                            return dbDto;
+                        })
+                        .PreserveReferences()
+                        .ReverseMap();
+                    // .ConstructUsing((dbDto, resolutionContext) =>
+                    // {
+                    //     var id = dbDtoId(dbDto);
+                    //     if (aggregateRootCache.TryGetValue(id, out var preExistingValue))
+                    //     {
+                    //         return preExistingValue;
+                    //     }
+                    //     
+                    //     var dbDto = new TDbDto();
+                    //     dtoCache[id] = dbDto;
+                    //     return dbDto;
+                    // });
                 });
 
-                var mapper = mapperConfig.CreateMapper();
-                
+                var cache = new AnonymousEntityFrameworkCoreDictionary<TId, TDbDto, TDbContext>(dbSet, _create, dbDtoId, find)
+                    .WithMinimalCaching();
+                var result = cache
+                    .WithMapping(
+                        (_, value) => GetMapper().Map<TAggregateRoot, TDbDto>(value),
+                        (_, dbDto) => GetMapper().Map<TDbDto, TAggregateRoot>(dbDto));
+            
                 _composableDictionaries[typeof(IKeyValue<TId, TDbDto>)] = result;
-                _getMutationses.Add(() => result.GetMutations(true).Select(mutation =>
+                _getMutationses.Add(() => cache.GetMutations(true).Select(mutation =>
                 {
-                    Action<TDbContext> action = context => Execute(context, mutation, dbSet, find, mapper, out var mutationResult);
+                    Action<TDbContext> action = (context) => Execute(context, mutation, dbSet, find, GetMapper(), out var mutationResult);
                     return action;
                 }));
                 
@@ -245,12 +309,6 @@ namespace LiveLinq.EntityFramework
             }
         }
         
-        public IComposableDictionary<TId, TDbDto> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
-            Func<TDbDto, TId> id) where TDbDto : class
-        {
-            return new AnonymousEntityFrameworkCoreDictionary<TId, TDbDto, TDbContext>(dbSet, _create, id);
-        }
-        
         public void FlushCache()
         {
             _lock.EnterWriteLock();
@@ -266,6 +324,8 @@ namespace LiveLinq.EntityFramework
                             {
                                 mutation(context);
                             }
+
+                            context.SaveChanges();
                             transaction.Commit();
                         }
                         catch(Exception ex)
@@ -275,6 +335,11 @@ namespace LiveLinq.EntityFramework
                             throw ex;
                         }
                     }
+                }
+                
+                foreach (var clearAction in _clearCaches)
+                {
+                    clearAction();
                 }
             }
             finally

@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
-using System.Security.Principal;
 using AutoMapper;
 using ComposableCollections;
 using FluentAssertions;
@@ -21,6 +19,10 @@ namespace LiveLinq.EntityFramework.Tests
 
     public class PersonDto
     {
+        public PersonDto()
+        {
+        }
+
         public Guid Id { get; set; }
         public string Name { get; set; }
         public ICollection<TaskDto> AssignedTasks { get; set; }
@@ -100,11 +102,9 @@ namespace LiveLinq.EntityFramework.Tests
             
             using (var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate()))
             {
-                var people = databaseLayer.WithAggregateRoot(x => x.People, x => x.Id)
-                    .WithCachedMapping<Guid, Person, PersonDto>(mapper)
+                var people = databaseLayer.WithAggregateRoot<Guid, Person, PersonDto>(x => x.People, x => x.Id, x => x.Id)
                     .WithBuiltInKey(x => x.Id);
-                var tasks = databaseLayer.WithAggregateRoot(x => x.Task, x => x.Id)
-                    .WithCachedMapping<Guid, Task, TaskDto>(mapper)
+                var tasks = databaseLayer.WithAggregateRoot<Guid, Task, TaskDto>(x => x.Task, x => x.Id, x => x.Id)
                     .WithBuiltInKey(x => x.Id);
 
                 var joe = new Person(joeId)
@@ -116,27 +116,25 @@ namespace LiveLinq.EntityFramework.Tests
                 tasks.Add(new Task(taskId)
                 {
                     Description = "Wash the car",
-                    //AssignedTo = joe
+                    AssignedTo = joe
                 });
             }
             
             using (var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate()))
             {
-                var people = databaseLayer.WithAggregateRoot(x => x.People, x => x.Id)
-                    .WithCachedMapping<Guid, Person, PersonDto>(mapper)
+                var people = databaseLayer.WithAggregateRoot<Guid, Person, PersonDto>(x => x.People, x => x.Id, x => x.Id)
                     .WithBuiltInKey(x => x.Id);
-                var tasks = databaseLayer.WithAggregateRoot(x => x.Task, x => x.Id)
-                    .WithCachedMapping<Guid, Task, TaskDto>(mapper)
+                var tasks = databaseLayer.WithAggregateRoot<Guid, Task, TaskDto>(x => x.Task, x => x.Id, x => x.Id)
                     .WithBuiltInKey(x => x.Id);
-
+            
                 var joe = people[joeId];
                 joe.Name.Should().Be("Joe");
-                // joe.AssignedTasks.Count.Should().Be(1);
-                // joe.AssignedTasks[0].Description.Should().Be("Wash the car");
-
+                joe.AssignedTasks.Count.Should().Be(1);
+                joe.AssignedTasks[0].Description.Should().Be("Wash the car");
+            
                 var washTheCar = tasks[taskId];
                 washTheCar.Description.Should().Be("Wash the car");
-                //ReferenceEquals(washTheCar, joe.AssignedTasks[0]).Should().BeTrue();
+                ReferenceEquals(washTheCar, joe.AssignedTasks[0]).Should().BeTrue();
             }
         }
     }
