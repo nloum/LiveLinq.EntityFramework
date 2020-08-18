@@ -5,7 +5,9 @@ VisualStudioVersion = 16.0.30406.217
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "_build", "..\build\_build.csproj", "{B4EF7CC9-E2BB-4EE2-B699-82D0637066E3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiveLinq.EntityFramework", "LiveLinq.EntityFramework\LiveLinq.EntityFramework.csproj", "{906B0D14-2019-41EE-9E11-A3C38C3913BB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "LiveLinq.EntityFramework", "LiveLinq.EntityFramework\LiveLinq.EntityFramework.csproj", "{906B0D14-2019-41EE-9E11-A3C38C3913BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiveLinq.EntityFramework.Tests", "LiveLinq.EntityFramework.Tests\LiveLinq.EntityFramework.Tests.csproj", "{3FBF7574-5871-412E-90C0-D1F430BD4C45}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -19,6 +21,10 @@ Global
 		{906B0D14-2019-41EE-9E11-A3C38C3913BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{906B0D14-2019-41EE-9E11-A3C38C3913BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{906B0D14-2019-41EE-9E11-A3C38C3913BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3FBF7574-5871-412E-90C0-D1F430BD4C45}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FBF7574-5871-412E-90C0-D1F430BD4C45}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3FBF7574-5871-412E-90C0-D1F430BD4C45}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3FBF7574-5871-412E-90C0-D1F430BD4C45}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
