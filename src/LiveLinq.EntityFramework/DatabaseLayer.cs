@@ -12,22 +12,50 @@ namespace LiveLinq.EntityFramework
 {
     public static class DatabaseLayer
     {
-        public static DatabaseLayer<TDbContext> Create<TDbContext>(Func<TDbContext> createDbContext) where TDbContext : DbContext
+        public static DatabaseLayer<TDbContext> Create<TDbContext>(Func<TDbContext> createDbContext, Action<TDbContext> migrate = null) where TDbContext : DbContext
         {
-            return new DatabaseLayer<TDbContext>(createDbContext);
+            return new DatabaseLayer<TDbContext>(createDbContext, migrate);
         }
     }
     
-    public class DatabaseLayer<TDbContext> where TDbContext : DbContext
+    public class DatabaseLayer<TDbContext> : IDisposable where TDbContext : DbContext
     {
         private readonly Func<TDbContext> _create;
         private ReaderWriterLockSlim _lock = new ReaderWriterLockSlim();
         private List<Func<IEnumerable<Action<TDbContext>>>> _getMutationses = new List<Func<IEnumerable<Action<TDbContext>>>>();
         private IComposableDictionary<Type, object> _composableDictionaries = new ComposableDictionary<Type, object>();
+        private bool _hasMigratedYet = false;
         
-        public DatabaseLayer(Func<TDbContext> create)
+        public DatabaseLayer(Func<TDbContext> create, Action<TDbContext> migrate = null)
         {
-            _create = create;
+            if (migrate == null)
+            {
+                _create = create;
+                _hasMigratedYet = true;
+            }
+            else
+            {
+                _hasMigratedYet = false;
+                _create = () =>
+                {
+                    if (!_hasMigratedYet)
+                    {
+                        using (var context = create())
+                        {
+                            migrate(context);
+                        }
+
+                        _hasMigratedYet = true;
+                    }
+
+                    return create();
+                };
+            }
+        }
+
+        public void Dispose()
+        {
+            FlushCache();
         }
 
         private IComposableDictionary<TKey, TValue> GetComposableDictionary<TKey, TValue>()
@@ -69,7 +97,7 @@ namespace LiveLinq.EntityFramework
                 _lock.ExitReadLock();
             }
         }
-        
+
         public IComposableDictionary<TId, TDbDto> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
             Func<TDbDto, TId> id, Func<DbSet<TDbDto>, TId, TDbDto> find) where TDbDto : class
         {
