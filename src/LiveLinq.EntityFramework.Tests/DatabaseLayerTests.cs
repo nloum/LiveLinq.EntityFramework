@@ -4,6 +4,7 @@ using System.IO;
 using AutoMapper;
 using ComposableCollections;
 using FluentAssertions;
+using LiveLinq.Dictionary;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -19,10 +20,6 @@ namespace LiveLinq.EntityFramework.Tests
 
     public class PersonDto
     {
-        public PersonDto()
-        {
-        }
-
         public Guid Id { get; set; }
         public string Name { get; set; }
         public ICollection<TaskDto> AssignedTasks { get; set; }
@@ -72,6 +69,32 @@ namespace LiveLinq.EntityFramework.Tests
         public DbSet<PersonDto> People { get; set; }
     }
 
+    public class PersonRepository : DelegateObservableDictionaryWithBuiltInKey<Guid, Person>
+    {
+        public PersonRepository(DatabaseLayer<TaskDbContext> databaseLayer, IMapper mapper)
+        {
+            var result = databaseLayer.WithAggregateRoot(x => x.People, x => x.Id)
+                .WithMapping<Guid, Person, PersonDto>(mapper)
+                .WithLiveLinq()
+                .WithBuiltInKey(x => x.Id);
+            
+            Initialize(result);
+        }
+    }
+
+    public class TaskRepository : DelegateObservableDictionaryWithBuiltInKey<Guid, Task>
+    {
+        public TaskRepository(DatabaseLayer<TaskDbContext> databaseLayer, IMapper mapper)
+        {
+            var result = databaseLayer.WithAggregateRoot(x => x.Task, x => x.Id)
+                .WithMapping<Guid, Task, TaskDto>(mapper)
+                .WithLiveLinq()
+                .WithBuiltInKey(x => x.Id);
+            
+            Initialize(result);
+        }
+    }
+
     [TestClass]
     public class DatabaseLayerTests
     {
@@ -84,54 +107,54 @@ namespace LiveLinq.EntityFramework.Tests
                 File.Delete("tasks.db");
             }
             
-            var joeId = Guid.NewGuid();
-            var taskId = Guid.NewGuid();
+            var preserveReferencesState = new PreserveReferencesState();
             
             var mapperConfig = new MapperConfiguration(cfg =>
             {
-                cfg.CreateMap<TaskDto, Task>()
-                    .PreserveReferences()
-                    .ReverseMap();
+                cfg.CreateMap<Task, TaskDto>()
+                    .ConstructUsing(preserveReferencesState)
+                    .ReverseMap()
+                    .ConstructUsing(preserveReferencesState, dto => new Task(dto.Id));
 
-                cfg.CreateMap<PersonDto, Person>()
-                    .PreserveReferences()
-                    .ReverseMap();
+                cfg.CreateMap<Person, PersonDto>()
+                    .ConstructUsing(preserveReferencesState)
+                    .ReverseMap()
+                    .ConstructUsing(preserveReferencesState, dto => new Person(dto.Id));
             });
 
             var mapper = mapperConfig.CreateMapper();
             
+            var joeId = Guid.NewGuid();
+            var taskId = Guid.NewGuid();
+            
             using (var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate()))
             {
-                var people = databaseLayer.WithAggregateRoot<Guid, Person, PersonDto>(x => x.People, x => x.Id, x => x.Id)
-                    .WithBuiltInKey(x => x.Id);
-                var tasks = databaseLayer.WithAggregateRoot<Guid, Task, TaskDto>(x => x.Task, x => x.Id, x => x.Id)
-                    .WithBuiltInKey(x => x.Id);
+                var people = new PersonRepository(databaseLayer, mapper);
+                var tasks = new TaskRepository(databaseLayer, mapper);
 
                 var joe = new Person(joeId)
                 {
                     Name = "Joe"
                 };
                 people.Add(joe);
-                
+
                 tasks.Add(new Task(taskId)
                 {
                     Description = "Wash the car",
                     AssignedTo = joe
                 });
             }
-            
+
             using (var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate()))
             {
-                var people = databaseLayer.WithAggregateRoot<Guid, Person, PersonDto>(x => x.People, x => x.Id, x => x.Id)
-                    .WithBuiltInKey(x => x.Id);
-                var tasks = databaseLayer.WithAggregateRoot<Guid, Task, TaskDto>(x => x.Task, x => x.Id, x => x.Id)
-                    .WithBuiltInKey(x => x.Id);
-            
+                var people = new PersonRepository(databaseLayer, mapper);
+                var tasks = new TaskRepository(databaseLayer, mapper);
+
                 var joe = people[joeId];
                 joe.Name.Should().Be("Joe");
                 joe.AssignedTasks.Count.Should().Be(1);
                 joe.AssignedTasks[0].Description.Should().Be("Wash the car");
-            
+
                 var washTheCar = tasks[taskId];
                 washTheCar.Description.Should().Be("Wash the car");
                 ReferenceEquals(washTheCar, joe.AssignedTasks[0]).Should().BeTrue();
