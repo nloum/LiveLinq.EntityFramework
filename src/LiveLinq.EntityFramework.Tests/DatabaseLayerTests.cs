@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using AutoMapper;
 using ComposableCollections;
+using ComposableCollections.Dictionary;
 using FluentAssertions;
 using LiveLinq.Dictionary;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,10 @@ namespace LiveLinq.EntityFramework.Tests
 
     public class PersonDto
     {
+        public PersonDto()
+        {
+        }
+
         public Guid Id { get; set; }
         public string Name { get; set; }
         public ICollection<TaskDto> AssignedTasks { get; set; }
@@ -69,29 +74,59 @@ namespace LiveLinq.EntityFramework.Tests
         public DbSet<PersonDto> People { get; set; }
     }
 
-    public class PersonRepository : DelegateObservableDictionaryWithBuiltInKey<Guid, Person>
+    public class PersonRepository : IObservableTransactionalDictionaryWithBuiltInKey<Guid, Person>
     {
+        private IObservableTransactionalDictionaryWithBuiltInKey<Guid, Person> _wrapped;
+
         public PersonRepository(DatabaseLayer<TaskDbContext> databaseLayer, IMapper mapper)
         {
-            var result = databaseLayer.WithAggregateRoot(x => x.People, x => x.Id)
+            _wrapped = databaseLayer.WithAggregateRoot(x => x.People, x => x.Id)
                 .WithMapping<Guid, Person, PersonDto>(mapper)
                 .WithLiveLinq()
                 .WithBuiltInKey(x => x.Id);
-            
-            Initialize(result);
+        }
+
+        public IDisposableReadOnlyDictionaryWithBuiltInKey<Guid, Person> BeginRead()
+        {
+            return _wrapped.BeginRead();
+        }
+
+        public IDisposableDictionaryWithBuiltInKey<Guid, Person> BeginWrite()
+        {
+            return _wrapped.BeginWrite();
+        }
+
+        public IDictionaryChangesStrict<Guid, Person> ToLiveLinq()
+        {
+            return _wrapped.ToLiveLinq();
         }
     }
 
-    public class TaskRepository : DelegateObservableDictionaryWithBuiltInKey<Guid, Task>
+    public class TaskRepository : IObservableTransactionalDictionaryWithBuiltInKey<Guid, Task>
     {
+        private IObservableTransactionalDictionaryWithBuiltInKey<Guid, Task> _wrapped;
+
         public TaskRepository(DatabaseLayer<TaskDbContext> databaseLayer, IMapper mapper)
         {
-            var result = databaseLayer.WithAggregateRoot(x => x.Task, x => x.Id)
+            _wrapped = databaseLayer.WithAggregateRoot(x => x.Task, x => x.Id)
                 .WithMapping<Guid, Task, TaskDto>(mapper)
                 .WithLiveLinq()
                 .WithBuiltInKey(x => x.Id);
-            
-            Initialize(result);
+        }
+
+        public IDisposableReadOnlyDictionaryWithBuiltInKey<Guid, Task> BeginRead()
+        {
+            return _wrapped.BeginRead();
+        }
+
+        public IDisposableDictionaryWithBuiltInKey<Guid, Task> BeginWrite()
+        {
+            return _wrapped.BeginWrite();
+        }
+
+        public IDictionaryChangesStrict<Guid, Task> ToLiveLinq()
+        {
+            return _wrapped.ToLiveLinq();
         }
     }
 
@@ -126,12 +161,12 @@ namespace LiveLinq.EntityFramework.Tests
             
             var joeId = Guid.NewGuid();
             var taskId = Guid.NewGuid();
-            
-            using (var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate()))
+
+            var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate());
             {
                 var people = new PersonRepository(databaseLayer, mapper);
                 var tasks = new TaskRepository(databaseLayer, mapper);
-
+                
                 var joe = new Person(joeId)
                 {
                     Name = "Joe"
@@ -145,7 +180,7 @@ namespace LiveLinq.EntityFramework.Tests
                 });
             }
 
-            using (var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate()))
+            databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate());
             {
                 var people = new PersonRepository(databaseLayer, mapper);
                 var tasks = new TaskRepository(databaseLayer, mapper);

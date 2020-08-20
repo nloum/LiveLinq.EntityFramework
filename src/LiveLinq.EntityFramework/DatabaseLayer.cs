@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using AutoMapper;
-using ComposableCollections;
 using ComposableCollections.Dictionary;
 using Microsoft.EntityFrameworkCore;
 using SimpleMonads;
@@ -17,8 +16,8 @@ namespace LiveLinq.EntityFramework
             return new DatabaseLayer<TDbContext>(createDbContext, migrate);
         }
     }
-    
-    public class DatabaseLayer<TDbContext> : IDisposable where TDbContext : DbContext
+
+    public class DatabaseLayer<TDbContext> where TDbContext : DbContext
     {
         private readonly Func<TDbContext> _create;
         private ReaderWriterLockSlim _lock = new ReaderWriterLockSlim();
@@ -55,65 +54,7 @@ namespace LiveLinq.EntityFramework
             }
         }
 
-        public void Dispose()
-        {
-            FlushCache();
-        }
-
-        private IComposableDictionary<TKey, TValue> GetComposableDictionary<TKey, TValue>()
-        {
-            var result = (IComposableDictionary<TKey, TValue>) _composableDictionaries[typeof(IKeyValue<TKey, TValue>)];
-            return result;
-        }
-
-        public void MutateAtomically<TKey, TValue>(Action<IComposableDictionary<TKey, TValue>> action)
-        {
-            _lock.EnterReadLock();
-            try
-            {
-                var dict1 = GetComposableDictionary<TKey, TValue>();
-                action(dict1);
-            }
-            finally
-            {
-                _lock.ExitReadLock();
-            }
-        }
-        
-        public void MutateAtomically<TKey1, TValue1, TKey2, TValue2>(Action<IComposableDictionary<TKey1, TValue1>, IComposableDictionary<TKey2, TValue2>> action)
-        {
-            _lock.EnterReadLock();
-            try
-            {
-                var dict1 = GetComposableDictionary<TKey1, TValue1>();
-                var dict2 = GetComposableDictionary<TKey2, TValue2>();
-                action(dict1, dict2);
-            }
-            finally
-            {
-                _lock.ExitReadLock();
-            }
-        }
-
-        private IMapper GetMapper()
-        {
-            if (_mapper == null)
-            {
-                var mapperConfig = new MapperConfiguration(cfg =>
-                {
-                    foreach (var mapperConfigAction in _mapperConfigs)
-                    {
-                        mapperConfigAction(cfg);
-                    }
-                });
-
-                _mapper = mapperConfig.CreateMapper();
-            }
-
-            return _mapper;
-        }
-
-        public IComposableDictionary<TId, TDbDto> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
+        public ITransactionalCollection<IDisposableReadOnlyDictionary<TId, TDbDto>, IDisposableDictionary<TId, TDbDto>> WithAggregateRoot<TId, TDbDto>(Func<TDbContext, DbSet<TDbDto>> dbSet,
             Func<TDbDto, TId> dbDtoId, Func<DbSet<TDbDto>, TId, TDbDto> find = null) where TDbDto : class, new()
         {
             if (find == null)
@@ -130,15 +71,21 @@ namespace LiveLinq.EntityFramework
                         .PreserveReferences();
                 });
 
-                var result = new AnonymousEntityFrameworkCoreDictionary<TId, TDbDto, TDbContext>(dbSet, _create, dbDtoId, find)
-                    .WithMinimalCaching();
-            
-                _composableDictionaries[typeof(IKeyValue<TId, TDbDto>)] = result;
-                _getMutationses.Add(() => result.GetMutations(true).Select(mutation =>
+                var result = new AnonymousTransactionalCollection<IDisposableReadOnlyDictionary<TId, TDbDto>, IDisposableDictionary<TId, TDbDto>>(() =>
                 {
-                    Action<TDbContext> action = (context) => Execute(context, mutation, dbSet, find, GetMapper(), out var mutationResult);
-                    return action;
-                }));
+                    var dbContext = _create();
+                    var theDbSet = dbSet(dbContext);
+                    var efCoreDict = new AnonymousEntityFrameworkCoreDictionary<TId, TDbDto, TDbContext>(dbContext, theDbSet,
+                        dbDtoId, find);
+                    return new DisposableDictionaryDecorator<TId, TDbDto>(efCoreDict, dbContext);
+                }, () =>
+                {
+                    var dbContext = _create();
+                    var theDbSet = dbSet(dbContext);
+                    var efCoreDict = new AnonymousEntityFrameworkCoreDictionary<TId, TDbDto, TDbContext>(dbContext, theDbSet,
+                        dbDtoId, find);
+                    return new DisposableDictionaryDecorator<TId, TDbDto>(efCoreDict, dbContext);
+                });
                 
                 return result;
             }
