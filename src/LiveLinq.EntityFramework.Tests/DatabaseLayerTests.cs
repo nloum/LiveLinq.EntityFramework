@@ -1,6 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
+using System.Reactive;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using AutoMapper;
 using ComposableCollections;
 using ComposableCollections.Dictionary;
@@ -8,15 +13,17 @@ using FluentAssertions;
 using LiveLinq.Dictionary;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SimpleMonads;
+using UtilityDisposables;
 
 namespace LiveLinq.EntityFramework.Tests
 {
-    public class TaskDto
+    public class WorkItemDto
     {
         public Guid Id { get; set; }
         public string Description { get; set; }
         public PersonDto AssignedTo { get; set; }
-        public Guid? AssignedToId { get; set; }
+        public Guid? AssignedToForeignKey { get; set; }
     }
 
     public class PersonDto
@@ -27,11 +34,11 @@ namespace LiveLinq.EntityFramework.Tests
 
         public Guid Id { get; set; }
         public string Name { get; set; }
-        public ICollection<TaskDto> AssignedTasks { get; set; }
+        public ICollection<WorkItemDto> AssignedWorkItems { get; set; }
     }
     
-    public class Task {
-        public Task(Guid id)
+    public class WorkItem {
+        public WorkItem(Guid id)
         {
             Id = id;
         }
@@ -50,17 +57,17 @@ namespace LiveLinq.EntityFramework.Tests
 
         public Guid Id { get; }
         public string Name { get; set; }
-        public List<Task> AssignedTasks { get; } = new List<Task>();
+        public ICollection<WorkItem> AssignedWorkItems { get; set; }
     }
 
-    public class TaskDbContext : DbContext
+    public class MyDbContext : DbContext
     {
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<PersonDto>()
-                .HasMany(x => x.AssignedTasks)
+                .HasMany(x => x.AssignedWorkItems)
                 .WithOne(x => x.AssignedTo)
-                .HasForeignKey(x => x.AssignedToId);
+                .HasForeignKey(x => x.AssignedToForeignKey);
 
             base.OnModelCreating(modelBuilder);
         }
@@ -70,63 +77,35 @@ namespace LiveLinq.EntityFramework.Tests
             optionsBuilder.UseSqlite("Data Source=tasks.db");
         }
         
-        public DbSet<TaskDto> Task { get; set; }
-        public DbSet<PersonDto> People { get; set; }
+        public DbSet<WorkItemDto> WorkItem { get; set; }
+        public DbSet<PersonDto> Person { get; set; }
     }
 
-    public class PersonRepository : IObservableTransactionalDictionaryWithBuiltInKey<Guid, Person>
+    public static class Transaction
     {
-        private IObservableTransactionalDictionaryWithBuiltInKey<Guid, Person> _wrapped;
-
-        public PersonRepository(DatabaseLayer<TaskDbContext> databaseLayer, IMapper mapper)
+        public static Transaction<TPeople, TTasks> Create<TPeople, TTasks>(TPeople people, TTasks tasks, IDisposable disposable)
         {
-            _wrapped = databaseLayer.WithAggregateRoot(x => x.People, x => x.Id)
-                .WithMapping<Guid, Person, PersonDto>(mapper)
-                .WithLiveLinq()
-                .WithBuiltInKey(x => x.Id);
-        }
-
-        public IDisposableReadOnlyDictionaryWithBuiltInKey<Guid, Person> BeginRead()
-        {
-            return _wrapped.BeginRead();
-        }
-
-        public IDisposableDictionaryWithBuiltInKey<Guid, Person> BeginWrite()
-        {
-            return _wrapped.BeginWrite();
-        }
-
-        public IDictionaryChangesStrict<Guid, Person> ToLiveLinq()
-        {
-            return _wrapped.ToLiveLinq();
+            return new Transaction<TPeople, TTasks>(people, tasks, disposable);
         }
     }
-
-    public class TaskRepository : IObservableTransactionalDictionaryWithBuiltInKey<Guid, Task>
+    
+    public class Transaction<TPeople, TTasks> : IDisposable
     {
-        private IObservableTransactionalDictionaryWithBuiltInKey<Guid, Task> _wrapped;
+        private readonly IDisposable _disposable;
 
-        public TaskRepository(DatabaseLayer<TaskDbContext> databaseLayer, IMapper mapper)
+        public Transaction(TPeople people, TTasks tasks, IDisposable disposable)
         {
-            _wrapped = databaseLayer.WithAggregateRoot(x => x.Task, x => x.Id)
-                .WithMapping<Guid, Task, TaskDto>(mapper)
-                .WithLiveLinq()
-                .WithBuiltInKey(x => x.Id);
+            _disposable = disposable;
+            People = people;
+            Tasks = tasks;
         }
 
-        public IDisposableReadOnlyDictionaryWithBuiltInKey<Guid, Task> BeginRead()
-        {
-            return _wrapped.BeginRead();
-        }
+        public TPeople People { get; }
+        public TTasks Tasks { get; }
 
-        public IDisposableDictionaryWithBuiltInKey<Guid, Task> BeginWrite()
+        public void Dispose()
         {
-            return _wrapped.BeginWrite();
-        }
-
-        public IDictionaryChangesStrict<Guid, Task> ToLiveLinq()
-        {
-            return _wrapped.ToLiveLinq();
+            _disposable.Dispose();
         }
     }
 
@@ -136,7 +115,6 @@ namespace LiveLinq.EntityFramework.Tests
         [TestMethod]
         public void ShouldHandleManyToOneRelationships()
         {
-            var x = Environment.CurrentDirectory;
             if (File.Exists("tasks.db"))
             {
                 File.Delete("tasks.db");
@@ -146,10 +124,10 @@ namespace LiveLinq.EntityFramework.Tests
             
             var mapperConfig = new MapperConfiguration(cfg =>
             {
-                cfg.CreateMap<Task, TaskDto>()
+                cfg.CreateMap<WorkItem, WorkItemDto>()
                     .ConstructUsing(preserveReferencesState)
                     .ReverseMap()
-                    .ConstructUsing(preserveReferencesState, dto => new Task(dto.Id));
+                    .ConstructUsing(preserveReferencesState, dto => new WorkItem(dto.Id));
 
                 cfg.CreateMap<Person, PersonDto>()
                     .ConstructUsing(preserveReferencesState)
@@ -159,40 +137,65 @@ namespace LiveLinq.EntityFramework.Tests
 
             var mapper = mapperConfig.CreateMapper();
             
+            var peopleChanges = new Subject<IDictionaryChangeStrict<Guid, Person>>();
+            var taskChanges = new Subject<IDictionaryChangeStrict<Guid, WorkItem>>();
+
+            var start = TransactionalDatabase.Create(() => new MyDbContext(), x => x.Database.Migrate());
+            var infrastructure = start.Select(
+                dbContext =>
+                {
+                    var tasks = dbContext.AsComposableReadOnlyDictionary(x => x.WorkItem, x => x.Id)
+                        .WithMapping<Guid, WorkItem, WorkItemDto>(mapper)
+                        .WithLiveLinq(taskChanges)
+                        .WithBuiltInKey(t => t.Id);
+                    var people = dbContext.AsComposableReadOnlyDictionary(x => x.Person, x => x.Id)
+                        .WithMapping<Guid, Person, PersonDto>(mapper)
+                        .WithLiveLinq(peopleChanges)
+                        .WithBuiltInKey(p => p.Id);
+                    return Transaction.Create(people, tasks, dbContext);
+                },
+                dbContext =>
+                {
+                    var tasks = dbContext.AsComposableDictionary(x => x.WorkItem, x => x.Id)
+                        .WithMapping<Guid, WorkItem, WorkItemDto>(mapper)
+                        .WithLiveLinq(taskChanges)
+                        .WithBuiltInKey(t => t.Id);
+                    var people = dbContext.AsComposableDictionary(x => x.Person, x => x.Id)
+                        .WithMapping<Guid, Person, PersonDto>(mapper)
+                        .WithLiveLinq(peopleChanges)
+                        .WithBuiltInKey(p => p.Id);
+                    return Transaction.Create(people, tasks, new AnonymousDisposable(() =>
+                    {
+                        dbContext.SaveChanges();
+                        dbContext.Dispose();
+                    }));
+                });
+
             var joeId = Guid.NewGuid();
             var taskId = Guid.NewGuid();
-
-            var databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate());
+            
+            using (var transaction = infrastructure.BeginWrite())
             {
-                var people = new PersonRepository(databaseLayer, mapper);
-                var tasks = new TaskRepository(databaseLayer, mapper);
-                
                 var joe = new Person(joeId)
                 {
                     Name = "Joe"
                 };
-                people.Add(joe);
 
-                tasks.Add(new Task(taskId)
+                transaction.People.Add(joe);
+            
+                var washTheCar = new WorkItem(taskId)
                 {
                     Description = "Wash the car",
                     AssignedTo = joe
-                });
+                };
+            
+                transaction.Tasks.Add(washTheCar);   
             }
 
-            databaseLayer = DatabaseLayer.Create(() => new TaskDbContext(), x => x.Database.Migrate());
+            using (var transaction = infrastructure.BeginWrite())
             {
-                var people = new PersonRepository(databaseLayer, mapper);
-                var tasks = new TaskRepository(databaseLayer, mapper);
-
-                var joe = people[joeId];
-                joe.Name.Should().Be("Joe");
-                joe.AssignedTasks.Count.Should().Be(1);
-                joe.AssignedTasks[0].Description.Should().Be("Wash the car");
-
-                var washTheCar = tasks[taskId];
-                washTheCar.Description.Should().Be("Wash the car");
-                ReferenceEquals(washTheCar, joe.AssignedTasks[0]).Should().BeTrue();
+                var joe = transaction.People[joeId];
+                var washTheCar = transaction.Tasks[taskId];
             }
         }
     }

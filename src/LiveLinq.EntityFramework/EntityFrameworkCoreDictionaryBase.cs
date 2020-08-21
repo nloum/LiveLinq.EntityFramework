@@ -5,7 +5,6 @@ using System.Linq;
 using AutoMapper;
 using ComposableCollections.Dictionary;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using SimpleMonads;
 
 namespace LiveLinq.EntityFramework

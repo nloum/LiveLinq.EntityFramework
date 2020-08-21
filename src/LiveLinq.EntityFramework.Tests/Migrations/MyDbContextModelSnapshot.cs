@@ -7,8 +7,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace LiveLinq.EntityFramework.Tests.Migrations
 {
-    [DbContext(typeof(TaskDbContext))]
-    partial class TaskDbContextModelSnapshot : ModelSnapshot
+    [DbContext(typeof(MyDbContext))]
+    partial class MyDbContextModelSnapshot : ModelSnapshot
     {
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
@@ -27,16 +27,16 @@ namespace LiveLinq.EntityFramework.Tests.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("People");
+                    b.ToTable("Person");
                 });
 
-            modelBuilder.Entity("LiveLinq.EntityFramework.Tests.TaskDto", b =>
+            modelBuilder.Entity("LiveLinq.EntityFramework.Tests.WorkItemDto", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("AssignedToId")
+                    b.Property<Guid?>("AssignedToForeignKey")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
@@ -44,16 +44,16 @@ namespace LiveLinq.EntityFramework.Tests.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AssignedToId");
+                    b.HasIndex("AssignedToForeignKey");
 
-                    b.ToTable("Task");
+                    b.ToTable("WorkItem");
                 });
 
-            modelBuilder.Entity("LiveLinq.EntityFramework.Tests.TaskDto", b =>
+            modelBuilder.Entity("LiveLinq.EntityFramework.Tests.WorkItemDto", b =>
                 {
                     b.HasOne("LiveLinq.EntityFramework.Tests.PersonDto", "AssignedTo")
-                        .WithMany("AssignedTasks")
-                        .HasForeignKey("AssignedToId");
+                        .WithMany("AssignedWorkItems")
+                        .HasForeignKey("AssignedToForeignKey");
                 });
 #pragma warning restore 612, 618
         }
